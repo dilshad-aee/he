@@ -1,0 +1,72 @@
+import serial
+import time
+import random
+import cv2
+import numpy as np
+
+# Set the serial port and baud rate for communication with the Arduino
+ser = serial.Serial('COM3', 9600)
+
+# Wait for the Arduino to initialize
+time.sleep(2)
+
+# Set up the camera
+cap = cv2.VideoCapture(0)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+# Define the launch sequence
+def launch(countdown_time, abort_time):
+    # Display countdown
+    for i in range(countdown_time, 0, -1):
+        print(i)
+        time.sleep(1)
+
+        # Check for abort signal
+        if ser.in_waiting > 0:
+            abort = ser.read().decode('ascii')
+            if abort == 'A':
+                print('Launch aborted.')
+                return
+
+    # Send the launch signal to the Arduino
+    print('Launch!')
+    ser.write(b'L')
+
+    # Wait for the rocket to launch or abort
+    t = 0
+    while t < abort_time:
+        time.sleep(0.1)
+        t += 0.1
+
+        # Check for abort signal
+        if ser.in_waiting > 0:
+            abort = ser.read().decode('ascii')
+            if abort == 'A':
+                print('Launch aborted.')
+                return
+
+        # Check for safe landing conditions
+        ret, frame = cap.read()
+        if not ret:
+            continue
+
+        # Apply image processing to detect landing conditions
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        lower_green = np.array([50, 50, 50])
+        upper_green = np.array([70, 255, 255])
+        mask = cv2.inRange(hsv, lower_green, upper_green)
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if len(cnts) > 0:
+            print('Rocket landed safely.')
+            return
+
+    # If the rocket has not landed safely within the specified time, assume it has crashed
+    print('Rocket crashed!')
+
+# Launch the rocket
+launch(5, 10)
+
+# Release the camera and close the serial port
+cap.release()
+ser.close()
